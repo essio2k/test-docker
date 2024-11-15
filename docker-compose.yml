@@ -1,0 +1,126 @@
+version: '3'
+
+networks:
+  laravel:
+
+
+services:
+  app:
+    build:
+      context: ./dockerfiles
+      dockerfile: nginx.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+    restart: unless-stopped
+    ports:
+      - "${LARAVEL_PORT:-5500}:80"
+    volumes:
+      - ./laravel/:/var/www/html:delegated
+    depends_on:
+      - php
+      - mysql
+      - phpmyadmin
+      - cron
+    networks:
+      - laravel
+
+  mysql:
+    image: mariadb:10.6
+    restart: unless-stopped
+    tty: true
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iperpneus}
+      MYSQL_USER: ${MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - ./mysql/:/var/lib/mysql/
+    networks:
+      - laravel
+      
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    links:
+      - mysql
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: ${MYSQL_PORT:-3306}
+      PMA_ARBITRARY: 1
+      UPLOAD_LIMIT: 524M
+    restart: always
+    ports:
+      - ${PHPMYADMIN_PORT:-5501}:80
+    networks:
+      - laravel
+
+  php:  
+    restart: unless-stopped
+    build:
+      context: ./dockerfiles
+      dockerfile: php.root.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+    volumes:
+      - ./laravel/:/var/www/html:delegated
+    networks:
+      - laravel
+
+  cron:    
+    restart: unless-stopped
+    build:
+      context: ./dockerfiles
+      dockerfile: php.root.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+    volumes:
+      - ./laravel/:/var/www/html
+      - ./laravel/storage/logs/cron/:/var/log
+    depends_on:
+      - php
+    entrypoint: ["crond", "-f", "-c", "/etc/cron.d"]
+    networks:
+      - laravel
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    tty: true
+    expose:
+      - ${REDIS_PORT:-3306}
+    networks:
+      - laravel
+
+  composer:   
+    build:
+      context: ./dockerfiles
+      dockerfile: php.root.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+    volumes:
+      - ./laravel/:/var/www/html
+    depends_on:
+      - php
+    entrypoint: [ 'composer', '--ignore-platform-reqs' ]
+    networks:
+      - laravel
+
+  artisan:   
+    build:
+      context: ./dockerfiles
+      dockerfile: php.root.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+    volumes:
+      - ./laravel/:/var/www/html:delegated
+    depends_on: 
+      - mysql
+    entrypoint: [ 'php', '/var/www/html/artisan' ]
+    networks:
+      - laravel
